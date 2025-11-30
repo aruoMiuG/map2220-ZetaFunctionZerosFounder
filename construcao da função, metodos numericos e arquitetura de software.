@@ -1,0 +1,126 @@
+\section{Construção da Função Utilizada e Métodos Numéricos}
+
+A série clássica da função zeta de Riemann,
+\begin{equation}
+\zeta(s)=\sum_{n=1}^{\infty} n^{-s},
+\end{equation}
+converge apenas para $\operatorname{Re}(s)>1$, impossibilitando o uso direto dessa representação na linha crítica $\operatorname{Re}(s)=1/2$. Para estender $\zeta(s)$ a todo o plano complexo (exceto o polo simples em $s=1$), utiliza-se sua equação funcional:
+\begin{equation}
+\label{eq:funcional}
+\zeta(s) = 2^s \pi^{s-1} \sin\!\left( \frac{\pi s}{2} \right)
+           \Gamma(1-s)\,\zeta(1-s).
+\end{equation}
+
+Essa relação revela o papel central da função gama complexa $\Gamma(s)$ na teoria analítica da zeta e, em particular, na computação numérica de suas extensões. Na prática, a presença de $\Gamma(s)$ aparece no cálculo da fase $\theta(t)$ da fórmula de Riemann–Siegel, utilizada para avaliar a função de Hardy $Z(t)$, cuja propriedade fundamental é
+\[
+Z(t)=0 
+\quad\Longleftrightarrow\quad 
+\zeta\!\left(\frac12 + it\right)=0.
+\]
+
+Para $t$ real suficientemente grande, a função $Z(t)$ admite a aproximação assintótica:
+\begin{equation}
+\label{eq:RS}
+Z(t) \approx 
+2 \sum_{n \le \sqrt{t/(2\pi)}} 
+n^{-1/2}\cos\!\left( \theta(t) - t\log n \right),
+\end{equation}
+onde a fase é dada por
+\begin{equation}
+\label{eq:theta}
+\theta(t) = \Im\!\left( \log \Gamma\!\left(\frac14 + \frac{i t}{2} \right) \right)
+            - \frac{t}{2}\log\pi.
+\end{equation}
+
+Assim, a computação eficiente de $Z(t)$ requer:
+\begin{itemize}
+    \item a avaliação numérica de $\Gamma(z)$ para $z$ complexo, feita no software por meio da aproximação de Lanczos;
+    \item a implementação da soma truncada da fórmula de Riemann--Siegel;
+    \item a manipulação cuidadosa de partes reais e imaginárias.
+\end{itemize}
+
+Uma vez construída a função $Z(t)$, a localização de seus zeros é tratada como um problema de raiz de função real. Para isso, empregamos o \emph{método da secante}, aplicado à equação
+\begin{equation}
+Z(t)=0.
+\end{equation}
+A iteração da secante é dada por
+\begin{equation}
+\label{eq:secante}
+p_{k+1} 
+=
+p_k - Z(p_k)\frac{p_k - p_{k-1}}{Z(p_k)-Z(p_{k-1})}.
+\end{equation}
+
+O método é particularmente adequado neste contexto por não exigir derivadas, apresentar convergência superlinear quando as aproximações iniciais estão bem escolhidas e lidar bem com funções altamente oscilatórias, como $Z(t)$. O critério de parada utilizado é
+\[
+|p_{k+1} - p_k| < \mathrm{TOL},
+\]
+com limite de iterações para garantir robustez numérica.
+
+Essa combinação — extensão analítica via equação funcional, avaliação eficiente da fórmula de Riemann–Siegel e localização de raízes pelo método da secante — constitui a base do software desenvolvido para a aproximação dos zeros da função zeta na linha crítica.
+
+\section{Arquitetura do Software}
+
+A implementação foi modularizada da seguinte forma:
+
+\subsection{Classe \texttt{ZetaFunction}}
+
+Responsável por:
+\begin{itemize}
+    \item calcular $\theta(t)$ usando \eqref{eq:theta};
+    \item avaliar a aproximação de Riemann--Siegel \eqref{eq:RS};
+    \item disponibilizar a função $Z(t)$ como chamada direta do objeto.
+\end{itemize}
+
+O cálculo da função gama complexa é realizado via uma classe auxiliar \texttt{GammaFunction}, que implementa a aproximação de Lanczos.
+
+\subsection{Classe \texttt{GammaFunction}}
+
+A classe \texttt{GammaFunction} encapsula a avaliação numérica da função gama complexa
+\[
+\Gamma(z),
+\]
+necessária tanto para a função $\theta(t)$ quanto para a forma funcional $\xi(s)$ da função zeta completada.
+
+A implementação utiliza a aproximação de Lanczos, um método estável e amplamente adotado para o cálculo de $\Gamma(z)$ em todo o plano complexo (exceto nos polos). Para $g=7$ e $n=9$ coeficientes, a forma utilizada é:
+\[
+\Gamma(z)
+\;\approx\;
+\sqrt{2\pi}\,(z+g+\tfrac12)^{\,z-\tfrac12}\,
+e^{-(z+g+\tfrac12)}\,
+\left(
+p_0 + \sum_{k=1}^{n} \frac{p_k}{z+k}
+\right),
+\]
+com os coeficientes clássicos de Lanczos incluídos no código.
+
+Para $\Re(z) < \tfrac12$, utiliza-se a fórmula de reflexão:
+\[
+\Gamma(z) = \frac{\pi}{\sin(\pi z)\,\Gamma(1-z)},
+\]
+garantindo que a implementação cubra todo o domínio não singular.
+
+A classe disponibiliza um método \texttt{gamma(z)} e também sobrecarrega o operador de chamada \texttt{\_\_call\_\_}, permitindo o uso direto da forma \texttt{GammaFunction()(z)}.
+
+\subsection{Classe \texttt{SecantMethod}}
+
+Implementa a iteração
+\begin{equation}\label{eq:secante}
+p_{n+1} = p_n - f(p_n)\,\frac{p_n - p_{n-1}}{f(p_n) - f(p_{n-1})},
+\end{equation}
+com tratamento explícito de erros:
+\begin{itemize}
+    \item denominação nula;
+    \item falta de convergência;
+    \item número máximo de iterações.
+\end{itemize}
+
+\subsection{Arquivo \texttt{main.py}}
+
+Executa o fluxo completo:
+\begin{enumerate}
+    \item seleciona intervalos iniciais $(p_0,p_1)$ onde se sabe que há zeros;
+    \item para cada intervalo, aplica a secante a $Z(t)$;
+    \item registra o zero encontrado e o número de iterações;
+    \item exibe um gráfico com os zeros localizados.
+\end{enumerate}
